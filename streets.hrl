@@ -3,3 +3,9 @@
   coordinates
 }).
 
+-record(streets_way, {
+  id,
+  nodes,
+  tags
+}).
+
