@@ -1,6 +1,7 @@
 -module(streets).
 -export([
-  fill_db/1
+  fill_db/1,
+  ways_to_file/4
 ]).
 -include("streets.hrl").
 -include("xml_stream.hrl").
@@ -9,6 +10,80 @@
   count = 0,
   way_count = 0
 }).
+
+ways_to_file(Filename, ImageWidth, Predicate, HowToStyle) ->
+  {ok, OutFile} = file:open(Filename, [write]),
+  BBox = {MaxLat, MaxLon, MinLat, MinLon} =
+    db_fold(fun(#streets_node{ coordinates = {Lat, Lon} }, {MaxLat, MaxLon, MinLat, MinLon}) ->
+      {
+        erlang:max(MaxLat, Lat),
+        erlang:max(MaxLon, Lon),
+        erlang:min(MinLat, Lat),
+        erlang:min(MinLon, Lon)
+      }
+    end, {-90, -180, 90, 180}, streets_node),
+  {Left, Top} = mercator_projection(MinLon, MaxLat),
+  {Right, Bottom} = mercator_projection(MaxLon, MinLat),
+  io:format("[to_file][bbox] ~p~n", [BBox]),
+  io:format("[to_file][projected_bbox] ~p ~p~n", [{Left, Top}, {Right, Bottom}]),
+  {Width, Height} = { Right - Left, Top - Bottom },
+  ImageHeight = ImageWidth * (Height / Width),
+  io:format(OutFile, "<svg width=\"~p\" height=\"~p\">~n", [ImageWidth, ImageHeight]),
+  db_dirty_fold(fun(Way = #streets_way{ nodes = NodeIds, tags = Tags }, {Printed, All}) ->
+    case All rem 10000 of
+      0 ->
+        io:format("Printed ~p of ~p~n", [Printed, All]);
+      _ ->
+        ok
+    end,
+    case Predicate(Tags) of
+      true ->
+        Nodes = find_all(NodeIds, streets_node),
+        %% io:format("[to_file][way] ~p~n", [ Way ]),
+        %% io:format("[to_file][nodes] ~p~n", [ Nodes ]),
+        SvgAttributes = get_attributes(HowToStyle(Tags)),
+        SvgPath = get_path_from_nodes(Nodes, {Left, Top}, {Width, Height}, ImageWidth, ImageHeight),
+        io:format(OutFile, "<path~s d=\"~s\" />~n", [ SvgAttributes, SvgPath ]),
+        {Printed + 1, All + 1};
+      false ->
+        {Printed, All + 1}
+    end
+  end, {0, 0}, streets_way),
+  io:format(OutFile, "</svg>", []).
+
+get_attributes(Attributes) ->
+  lists:foldl(fun({Key, Value}, Str) ->
+    Str ++ io_lib:format(" ~s=\"~s\"", [Key, Value])
+  end, "", Attributes).
+
+get_path_from_nodes(Nodes, {Left, Top}, {Width, Height}, ImageWidth, ImageHeight) ->
+  {_, Str} =
+    lists:foldl(fun(#streets_node{ coordinates = {Lat, Lon} }, {IsFirst, Str}) ->
+      {X, Y} = mercator_projection(Lon, Lat),
+      {X0, Y0} = {X - Left, Top - Y},
+      {PosX, PosY} = {ImageWidth * (X0 / Width), ImageHeight * (Y0 / Height)},
+      Cmd = case IsFirst of true -> "M"; false -> "L" end,
+      {false, Str ++ io_lib:format(" ~s ~p ~p", [Cmd, PosX, PosY])}
+    end, {true, ""}, Nodes),
+  Str.
+
+find_all(Ids, Table) ->
+  mnesia:activity(transaction, fun() ->
+    lists:foldl(fun(Id, Results) ->
+      case mnesia:read(Table, Id) of
+        [ NewResult ] ->
+          [ NewResult | Results ];
+        _ ->
+          Results
+      end
+    end, [], Ids)
+  end).
+
+mercator_projection(Lon, Lat) ->
+  { deg_to_rad(Lon), math:log(math:tan(math:pi() / 4 + deg_to_rad(Lat) / 2)) }.
+
+deg_to_rad(X) ->
+  X * math:pi() / 180.
 
 fill_db(Filename) ->
   Nodes = [ node() ],
@@ -57,6 +132,24 @@ fill_db(Filename) ->
     event_fun = EventFun,
     event_state = #state{}
   }).
+
+db_fold(F, Initial, Table) ->
+  mnesia:activity(transaction, fun() ->
+    mnesia:foldl(F, Initial, Table)
+  end).
+
+db_dirty_fold(F, Initial, Table) ->
+  db_dirty_fold(F, Initial, Table, mnesia:dirty_first(Table)).
+
+db_dirty_fold(F, Acc, Table, Key) ->
+  case Key of
+    '$end_of_table' ->
+      Acc;
+    UsableKey ->
+      [ Record ] = mnesia:dirty_read(Table, UsableKey),
+      NextKey = mnesia:dirty_next(Table, UsableKey),
+      db_dirty_fold(F, F(Record, Acc), Table, NextKey)
+  end.
 
 create_way(#xml_stream_element{ name = "way", attributes = Attributes, children = Children }) ->
   #streets_way{
