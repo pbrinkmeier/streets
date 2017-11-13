@@ -43,6 +43,9 @@ ways_to_file(Filename, ImageWidth, Predicate, HowToStyle) ->
   {Width, Height} = { Right - Left, Top - Bottom },
   ImageHeight = ImageWidth * (Height / Width),
   io:format(OutFile, "<svg width=\"~p\" height=\"~p\">~n", [ImageWidth, ImageHeight]),
+  io:format(OutFile, "<rect x=\"0\" y=\"0\" width=\"~p\" height=\"~p\" />", [
+    ImageWidth, ImageHeight
+  ]),
   db_dirty_fold(fun(Way = #streets_way{ nodes = NodeIds, tags = Tags }, {Printed, All}) ->
     case All rem 10000 of
       0 ->
