@@ -1,7 +1,8 @@
 -module(streets).
 -export([
   fill_db/1,
-  ways_to_file/4
+  ways_to_file/4,
+  analyze/1
 ]).
 -include("streets.hrl").
 -include("xml_stream.hrl").
@@ -11,10 +12,23 @@
   way_count = 0
 }).
 
+analyze(Tag) ->
+  Counted = db_dirty_fold(fun(#streets_way{ tags = Tags }, TagDict) ->
+    case proplists:get_value(Tag, Tags) of
+      undefined ->
+        TagDict;
+      Val ->
+        orddict:update_counter(Val, 1, TagDict)
+    end
+  end, orddict:new(), streets_way),
+  lists:sort(fun({_AK, CountA}, {_BK, CountB}) ->
+    CountA > CountB
+  end, Counted).
+
 ways_to_file(Filename, ImageWidth, Predicate, HowToStyle) ->
   {ok, OutFile} = file:open(Filename, [write]),
   BBox = {MaxLat, MaxLon, MinLat, MinLon} =
-    db_fold(fun(#streets_node{ coordinates = {Lat, Lon} }, {MaxLat, MaxLon, MinLat, MinLon}) ->
+    db_dirty_fold(fun(#streets_node{ coordinates = {Lat, Lon} }, {MaxLat, MaxLon, MinLat, MinLon}) ->
       {
         erlang:max(MaxLat, Lat),
         erlang:max(MaxLon, Lon),
