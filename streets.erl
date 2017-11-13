@@ -147,11 +147,6 @@ fill_db(Filename) ->
     event_state = #state{}
   }).
 
-db_fold(F, Initial, Table) ->
-  mnesia:activity(transaction, fun() ->
-    mnesia:foldl(F, Initial, Table)
-  end).
-
 db_dirty_fold(F, Initial, Table) ->
   db_dirty_fold(F, Initial, Table, mnesia:dirty_first(Table)).
 
