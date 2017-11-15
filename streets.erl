@@ -2,7 +2,9 @@
 -export([
   fill_db/1,
   ways_to_file/4,
-  analyze/1
+  analyze/1,
+  generate_style/1,
+  generate_filter/1
 ]).
 -include("streets.hrl").
 -include("xml_stream.hrl").
@@ -11,6 +13,50 @@
   count = 0,
   way_count = 0
 }).
+
+generate_style(StyleDef) ->
+  fun(Tags) ->
+    apply_style(Tags, StyleDef)
+  end.
+
+generate_filter(StyleDef) ->
+  fun(Tags) ->
+    apply_filter(Tags, StyleDef)
+  end.
+
+apply_filter(Tags, [ { Key, _Style } | Rest ]) when erlang:is_list(Key) ->
+  case proplists:is_defined(Key, Tags) of
+    true ->
+      true;
+    false ->
+      apply_filter(Tags, Rest)
+  end;
+apply_filter(Tags, [ { {Key, Value}, _Style } | Rest ]) ->
+  case proplists:get_value(Key, Tags) of
+    Value ->
+      true;
+    _ ->
+      apply_filter(Tags, Rest)
+  end;
+apply_filter(Tags, []) ->
+  false.
+
+apply_style(Tags, [ { Key, Style } | Rest ]) when erlang:is_list(Key) ->
+  case proplists:is_defined(Key, Tags) of
+    true ->
+      Style;
+    false ->
+      apply_style(Tags, Rest)
+  end;
+apply_style(Tags, [ { {Key, Value}, Style } | Rest ]) ->
+  case proplists:get_value(Key, Tags) of
+    Value ->
+      Style;
+    _ ->
+      apply_style(Tags, Rest)
+  end;
+apply_style(Tags, []) ->
+  [].
 
 analyze(Tag) ->
   Counted = db_dirty_fold(fun(#streets_way{ tags = Tags }, TagDict) ->
