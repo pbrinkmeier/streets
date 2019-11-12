@@ -4,7 +4,10 @@
   ways_to_file/4,
   analyze/1,
   generate_style/1,
-  generate_filter/1
+  generate_filter/1,
+  with_style/3,
+  has_key/1,
+  fill_with/1
 ]).
 -include("streets.hrl").
 -include("xml_stream.hrl").
@@ -13,6 +16,17 @@
   count = 0,
   way_count = 0
 }).
+
+has_key(K) ->
+  fun(Tags) -> proplists:is_defined(K, Tags) end.
+
+fill_with(C) ->
+  fun(Tags) -> [ {"fill", C} ] end.
+
+with_style(FileName, ImageWidth, StyleDef) ->
+  Style = generate_style(StyleDef),
+  Predicate = generate_filter(StyleDef),
+  ways_to_file(FileName, ImageWidth, Predicate, Style).
 
 generate_style(StyleDef) ->
   fun(Tags) ->
@@ -89,9 +103,9 @@ ways_to_file(Filename, ImageWidth, Predicate, HowToStyle) ->
   {Width, Height} = { Right - Left, Top - Bottom },
   ImageHeight = ImageWidth * (Height / Width),
   io:format(OutFile, "<svg width=\"~p\" height=\"~p\">~n", [ImageWidth, ImageHeight]),
-  io:format(OutFile, "<rect x=\"0\" y=\"0\" width=\"~p\" height=\"~p\" />", [
-    ImageWidth, ImageHeight
-  ]),
+  %% io:format(OutFile, "<rect x=\"0\" y=\"0\" width=\"~p\" height=\"~p\" />", [
+  %%   ImageWidth, ImageHeight
+  %% ]),
   db_dirty_fold(fun(Way = #streets_way{ nodes = NodeIds, tags = Tags }, {Printed, All}) ->
     case All rem 10000 of
       0 ->
